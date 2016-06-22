@@ -20,7 +20,7 @@
 ##############################################################################
 
 import sys
-from datetime import datetime
+import datetime
 from openerp.osv import orm, fields
 import logging
 _logger = logging.getLogger(__name__)
