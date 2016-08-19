@@ -156,18 +156,23 @@ class import_odbc_dbtable(orm.Model):
                 'time': time,
                 # copy context to prevent side-effects of eval
                 'context': context.copy(),
+                'data': data,
+                'result': {},
                 'rows': data['rows'],
                 'cols': data['cols']}
 
     def _post_processing_eval(self, cr, uid, ids, obj_name, obj, data, context):
-        expr = self.browse(cr, uid, ids[0], context).python_post_processing
+        expr = self.browse(cr, uid, ids[0], context).python_post_processing \
+               or False
         space = self._eval_context(cr, uid, obj_name, obj, data,
                                    context=context)
+        if not expr:
+            return data
         try:
-            safe_eval(expr,
-                      space,
-                      mode='exec',
-                      nocopy=True)  # nocopy allows to return 'result'
+            exec(expr, space)
+            return space.get('data')
+                 # mode='exec',
+                 # nocopy=True)  # nocopy allows to return 'result'
         except Exception, e:
             raise orm.except_orm(
                 _('Error'),
@@ -219,8 +224,9 @@ class import_odbc_dbtable(orm.Model):
             cols = ([x for i, x in enumerate(res['cols'])
                     if x.upper() != 'NONE'] + ['id'])
 
-            # res = self._post_processing_eval(cr, uid, ids, model_name, model_obj,
-            #                                  res, context=context)
+            res = self._post_processing_eval(cr, uid, ids, model_name,
+                                             model_obj, data=res,
+                                             context=context)
 
             # Import each row:
             for row in res['rows']:
@@ -234,7 +240,8 @@ class import_odbc_dbtable(orm.Model):
                     if isinstance(v, str):
                         v = v.strip()
                     data.append(v)
-                data.append(xml_prefix + str(row[0]).strip())
+                data.append(xml_prefix + str(row[0]).strip('').replace(
+                    '.', '_'))
 
                 # Import the row; on error, write line to the log
                 log['last_record_count'] += 1
