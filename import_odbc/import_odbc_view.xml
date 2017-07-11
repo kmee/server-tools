@@ -41,6 +41,10 @@
                         <field name="last_run"/>
                         <field name="last_log" colspan="4"/>
                     </group>
+                <separator string="Post Processing" colspan="4" />
+                    <group>
+                        <field name="python_post_processing" />
+                    </group>
                 </group>
             </form>
             </field>

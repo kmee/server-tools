@@ -3,9 +3,14 @@
 # License AGPL-3 - See http://www.gnu.org/licenses/agpl-3.0.html
 
 import sys
+import time
 from datetime import datetime
-from openerp.osv import orm, fields
 import logging
+
+from openerp.osv import orm, fields
+from openerp.tools.safe_eval import safe_eval
+from openerp.tools.translate import _
+
 _logger = logging.getLogger(__name__)
 _loglvl = _logger.getEffectiveLevel()
 SEP = '|'
@@ -50,6 +55,8 @@ class import_odbc_dbtable(orm.Model):
                                               debugging purposes. \nAlso \
                                               forces debug messages to be \
                                               written to the server log."),
+        'python_post_processing': fields.text(string='Post Processing python '
+                                                     'code')
     }
     _defaults = {
         'enabled': True,
@@ -116,6 +123,45 @@ class import_odbc_dbtable(orm.Model):
                 return False
         return True
 
+    def _eval_context(self, cr, uid, obj_name, obj, data, context=None):
+        if context is None:
+            context = {}
+
+        user = self.pool.get('res.users').browse(cr, uid, uid, context=context)
+        return {obj_name: obj,
+                'self': self.pool.get(obj._name),
+                'object': obj,
+                'obj': obj,
+                'pool': self.pool,
+                'cr': cr,
+                'uid': uid,
+                'user': user,
+                'time': time,
+                # copy context to prevent side-effects of eval
+                'context': context.copy(),
+                'data': data,
+                'result': {},
+                'rows': data['rows'],
+                'cols': data['cols']}
+
+    def _post_processing_eval(self, cr, uid, ids, obj_name, obj, data, context):
+        expr = self.browse(cr, uid, ids[0], context).python_post_processing \
+               or False
+        space = self._eval_context(cr, uid, obj_name, obj, data,
+                                   context=context)
+        if not expr:
+            return data
+        try:
+            exec(expr, space)
+            return space.get('data')
+                 # mode='exec',
+                 # nocopy=True)  # nocopy allows to return 'result'
+        except Exception, e:
+            raise orm.except_orm(
+                _('Error'),
+                _('Error when evaluating \n(%s)') % e)
+        return space.get('failed', False)
+
     def import_run(self, cr, uid, ids=None, context=None):
         db_model = self.pool.get('base.external.dbsource')
         actions = self.read(cr, uid, ids, ['id', 'exec_order'])
@@ -161,6 +207,10 @@ class import_odbc_dbtable(orm.Model):
             cols = ([x for i, x in enumerate(res['cols'])
                     if x.upper() != 'NONE'] + ['id'])
 
+            res = self._post_processing_eval(cr, uid, ids, model_name,
+                                             model_obj, data=res,
+                                             context=context)
+
             # Import each row:
             for row in res['rows']:
                 # Build data row;
@@ -173,7 +223,8 @@ class import_odbc_dbtable(orm.Model):
                     if isinstance(v, str):
                         v = v.strip()
                     data.append(v)
-                data.append(xml_prefix + str(row[0]).strip())
+                data.append(xml_prefix + str(row[0]).strip('').replace(
+                    '.', '_'))
 
                 # Import the row; on error, write line to the log
                 log['last_record_count'] += 1
