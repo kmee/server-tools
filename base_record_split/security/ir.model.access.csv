@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_base_record_split_wizard,access.base.record.split.wizard,model_base_record_split_wizard,base.group_user,1,1,1,1
+access_base_record_split_line,access.base.record.split.line,model_base_record_split_line,base.group_user,1,1,1,1
