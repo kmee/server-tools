@@ -38,4 +38,5 @@
         <field name="target">new</field>
         <field name="binding_model_id" eval="False" />
     </record>
+
 </odoo>

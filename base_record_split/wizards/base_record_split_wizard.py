@@ -9,7 +9,7 @@ class BaseRecordSplitWizard(models.TransientModel):
     res_id = fields.Integer(string="ID do Registro Original", required=True)
     archive_original = fields.Boolean(
         string="Arquivar registro original",
-        default=True,
+        default=False,
         help="Se marcado, o registro original será arquivado após a divisão",
     )
     line_ids = fields.One2many(
@@ -39,11 +39,8 @@ class BaseRecordSplitWizard(models.TransientModel):
             new_record = Model.create(values)
 
             # Copia mensagens e seus anexos
-            message_vals = []
-            for message in original_record.message_ids.filtered(
-                lambda m: not m.internal
-            ):
-                msg_vals = message.copy_data()[0]
+            for old_msg in original_record.message_ids.sorted(key=lambda m: m.date):
+                msg_vals = old_msg.copy_data()[0]
                 msg_vals.update(
                     {
                         "res_id": new_record.id,
@@ -52,22 +49,33 @@ class BaseRecordSplitWizard(models.TransientModel):
                 )
                 for field in ["id", "message_id", "notification_ids"]:
                     msg_vals.pop(field, None)
-                message_vals.append(msg_vals)
 
-            self.env["mail.message"].create(message_vals)
+                self.env["mail.message"].create(msg_vals)
 
-            # Copia seguidores
-            follower_vals = []
+            # Copia anexos da mensagem original para a nova
+            for attachment in original_record.attachment_ids.sorted(
+                key=lambda m: m.create_date
+            ):
+                attachment.copy({"res_id": new_record.id})
+
+            # Copia seguidores (evita duplicatas)
             for follower in original_record.message_follower_ids:
-                fol_vals = follower.copy_data()[0]
-                fol_vals.update(
-                    {
-                        "res_id": new_record.id,
-                        "res_model": self.model_name,
-                    }
+                partner_id = follower.partner_id.id
+                already_following = self.env["mail.followers"].search_count(
+                    [
+                        ("res_model", "=", self.model_name),
+                        ("res_id", "=", new_record.id),
+                        ("partner_id", "=", partner_id),
+                    ]
                 )
-                follower_vals.append(fol_vals)
-            self.env["mail.followers"].create(follower_vals)
+                if not already_following:
+                    self.env["mail.followers"].create(
+                        {
+                            "res_model": self.model_name,
+                            "res_id": new_record.id,
+                            "partner_id": partner_id,
+                        }
+                    )
 
             # Copia atividades
             for activity in original_record.activity_ids:
